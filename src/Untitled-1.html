@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='UTF-8' />
+    <title>Stream Camera</title>
+</head>
+<body>
+    <video id='video' autoplay controls></video>
+    <script>
+        var video = document.querySelector('video');
+        navigator.mediaDevices.getUserMedia({video: true, audio: true}).then(stream => {
+            video.srcObject = stream;
+        });
+    </script>
+</body>
+</html>
