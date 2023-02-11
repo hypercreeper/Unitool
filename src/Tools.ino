@@ -52,7 +52,7 @@ String options[] = {"BLE Scan", "Scan Wifi", "Connect", "Disconnect", "STA Info"
 String reddit_json = "";
 bool optionsEnabled[] = {true, true, true, true, true, true, true, true, true, true, true, false};
 int selectedIndex = 0;
-String selectedOption = "Scan Wifi";
+String selectedOption = "BLE Scan";
 char buff[512];
 bool isAppOpen = false;
 bool staapmodepublic = false;
@@ -82,7 +82,16 @@ WebServer server(80);
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) {
-      tft.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
+      // tft.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
+      tft.print("Name: ");
+      tft.println(advertisedDevice.getName().c_str());
+      tft.print("Address: ");
+      tft.println(advertisedDevice.getAddress().toString().c_str());
+      tft.print("?: ");
+      tft.println((char*)advertisedDevice.getAppearance());
+      // tft.print("RSSI: ");
+      // tft.println((char *)advertisedDevice.getRSSI());
+      
     }
 };
 
