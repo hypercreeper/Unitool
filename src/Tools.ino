@@ -10,6 +10,10 @@
 #include <HTTPResponse.hpp>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
+#include <USB.h>
+#include <USBHIDKeyboard.h>
+#include <WebSocketsServer.h> // Install WebSockets by Markus Sattler from IDE Library manager
 
 #include <TFT_eSPI.h>
 
@@ -32,6 +36,20 @@
 // TODO: Make sure to add approximate.h library to calculate distance of devices using wifi
 // TODO: Add Bluetooth
 
+#define DEBUG_ON  0
+#if DEBUG_ON
+#define DBG_begin(...)    Serial.begin(__VA_ARGS__)
+#define DBG_print(...)    Serial.print(__VA_ARGS__)
+#define DBG_println(...)  Serial.println(__VA_ARGS__)
+#define DBG_printf(...)   Serial.printf(__VA_ARGS__)
+#else
+#define DBG_begin(...)
+#define DBG_print(...)
+#define DBG_println(...)
+#define DBG_printf(...)
+#endif
+
+
 BLEScan* blescan;
 int scanTime = 5; //In seconds
 
@@ -48,11 +66,13 @@ uint32_t BG_THEME = TFT_BLACK;
 uint32_t FG_THEME = TFT_WHITE;
 char* SSIDs[] = {"Moukayed", "Belkin.069", "Mohamad's Room", "Diff. Network"};
 char* Passwords[] = {"0566870554", "0566870554", "Mohamad2008!"};
-String options[] = {"BLE Scan", "Scan Wifi", "Connect", "Disconnect", "STA Info", "Erase Wifi", "Start AP", "Stop AP", "AP Info", "Webserver","Theme", "Display", "Sensors", "Reddit"};
+char* WiFiMenuOptions[] = {"Scan WiFi", "Connect", "Disconnect", "STA info", "Erase WiFi", "Start AP", "Stop AP", "AP Info"};
+char* BTMenuOptions[] = {"BLE Scan"};
+String options[] = {"WiFi", "Bluetooth", "Webserver","Theme", "Display", "Sensors", "Reddit", "Keyboard"};
 String reddit_json = "";
-bool optionsEnabled[] = {true, true, true, true, true, true, true, true, true, true, true, false};
+bool optionsEnabled[] = {true, true, true, true, true, true, true, true};
 int selectedIndex = 0;
-String selectedOption = "BLE Scan";
+String selectedOption = "WiFi";
 char buff[512];
 bool isAppOpen = false;
 bool staapmodepublic = false;
@@ -79,6 +99,122 @@ Button2 btn2 = Button2(btn2_pin);
 DHT dht(DHT_PIN, DHT_TYPE);
 
 WebServer server(80);
+WebSocketsServer webSocket = WebSocketsServer(81);
+
+
+USBHIDKeyboard Keyboard;
+
+MDNSResponder mdns;
+
+
+#include "index_html.h"
+
+
+const int MAX_ROWS = 6;
+const int MAX_COLS = 17;
+const uint8_t Keycodes[MAX_ROWS][MAX_COLS] = {
+  // Row 0 (top row)
+  {KEY_TAB, KEY_F1 , KEY_F2 , KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7, KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_F12},
+  // Row 1
+  {'`',     '1',    '2',     '3',    '4',    '5',    '6',    '7',    '8',    '9',    '0',     '-',     '+',     '\b', KEY_INSERT, KEY_HOME, KEY_PAGE_UP},
+  // Row 2
+  {KEY_TAB, 'q',    'w',     'e',    'r',    't',    'y',    'u',    'i',    'o',    'p',     '[',     ']',     '\\', KEY_DELETE, KEY_END,  KEY_PAGE_DOWN},
+  // Row 3
+  {KEY_CAPS_LOCK, 'a', 's',  'd',    'f',    'g',    'h',    'j',    'k',    'l',    ';',     '\'',     KEY_RETURN},
+  // Row 4
+  {KEY_LEFT_SHIFT,'z', 'x',  'c',    'v',    'b',    'n',    'm',    ',',    '.',    '/',     KEY_RIGHT_SHIFT, 0, KEY_UP_ARROW},
+  // Row 5
+  {KEY_LEFT_CTRL, KEY_LEFT_GUI , KEY_LEFT_ALT, ' ', KEY_RIGHT_ALT, KEY_RIGHT_GUI, 0, KEY_RIGHT_CTRL, KEY_LEFT_ARROW, KEY_DOWN_ARROW, KEY_RIGHT_ARROW},
+};
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length)
+{
+  DBG_printf("webSocketEvent(%d, %d, ...)\r\n", num, type);
+  switch(type) {
+    case WStype_DISCONNECTED:
+      DBG_printf("[%u] Disconnected!\r\n", num);
+      break;
+    case WStype_CONNECTED:
+      {
+        IPAddress ip = webSocket.remoteIP(num);
+        DBG_printf("[%u] Connected from %d.%d.%d.%d url: %s\r\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+      }
+      break;
+    case WStype_TEXT:
+      {
+        DBG_printf("[%u] get Text: [%d] %s \r\n", num, length, payload);
+
+        StaticJsonDocument<96> doc;
+        DeserializationError error = deserializeJson(doc, payload);;
+
+        if (error) {
+          DBG_print(F("deserializeJson() failed: "));
+          DBG_println(error.f_str());
+          return;
+        }
+        const char* event = doc["event"];
+        int row = doc["row"];
+        if (row < 0) {
+          DBG_printf("row negative %d\n", row);
+          row = 0;
+        }
+        if (row >= MAX_ROWS) {
+          DBG_printf("row too high %d\n", row);
+          row = MAX_ROWS - 1;
+        }
+
+        int col = doc["col"];
+        if (col < 0) {
+          DBG_printf("col negative %d\n", col);
+          col = 0;
+        }
+        if (col >= MAX_COLS) {
+          DBG_printf("col too high %d\n", col);
+          col = MAX_COLS - 1;
+        }
+        if (strcmp(event, "touch start") == 0) {
+          Keyboard.press(Keycodes[row][col]);
+        }
+        else if (strcmp(event, "touch end") == 0) {
+          Keyboard.release(Keycodes[row][col]);
+        }
+      }
+      break;
+    case WStype_BIN:
+      DBG_printf("[%u] get binary length: %u\r\n", num, length);
+      //      hexdump(payload, length);
+
+      // echo data back to browser
+      webSocket.sendBIN(num, payload, length);
+      break;
+    default:
+      DBG_printf("Invalid WStype [%d]\r\n", type);
+      break;
+  }
+}
+
+void handleRootU()
+{
+  server.send(200, "text/html", INDEX_HTML);
+}
+
+void handleNotFoundU()
+{
+  String message = "File Not Found\n\n";
+  message += "URI: ";
+  message += server.uri();
+  message += "\nMethod: ";
+  message += (server.method() == HTTP_GET)?"GET":"POST";
+  message += "\nArguments: ";
+  message += server.args();
+  message += "\n";
+  for (uint8_t i=0; i<server.args(); i++){
+    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+  }
+  server.send(404, "text/plain", message);
+}
+
+
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) {
@@ -106,7 +242,6 @@ void setup() {
   tft.setTextColor(TFT_BLACK);
   setTheme(false);
   WiFi.setAutoReconnect(true);
-  WiFi.setAutoConnect(true);
   dht.begin();
   BLEDevice::init("ESP32");
   DisplayHomeScreen();
@@ -115,32 +250,11 @@ void setup() {
       if(selectedOption == "Theme") {
         openThemeApp();
       }
-      else if(selectedOption == "Scan Wifi") {
-        openScanWifiApp();
+      else if(selectedOption == "WiFi") {
+        openWiFiSubmenu();
       }
-      else if(selectedOption == "BLE Scan") {
-        openBLEScanApp();
-      }
-      else if(selectedOption == "Connect") {
-        openConnectApp();
-      }
-      else if(selectedOption == "Disconnect") {
-        openDisconnectApp(false);
-      }
-      else if(selectedOption == "Erase Wifi") {
-        openDisconnectApp(true);
-      }
-      else if(selectedOption == "STA Info") {
-        openSTAInfoApp();
-      }
-      else if(selectedOption == "Start AP") {
-        openStartAPApp();
-      }
-      else if(selectedOption == "Stop AP") {
-        openDisconnectAPApp();
-      }
-      else if(selectedOption == "AP Info") {
-        openAPInfoApp();
+      else if(selectedOption == "Bluetooth") {
+        openBTSubmenu();
       }
       else if(selectedOption == "Webserver") {
         openWebServerApp();
@@ -154,7 +268,9 @@ void setup() {
       else if(selectedOption == "Reddit") {
         openRedditApp(false);
       }
-      
+      else if(selectedOption == "Keyboard") {
+        openKeyboardApp();
+      }
     }
   });
   btn2.setClickHandler([](Button2 & b) {
@@ -212,32 +328,11 @@ void setup() {
       if(selectedOption == "Theme") {
         openThemeApp();
       }
-      else if(selectedOption == "Scan Wifi") {
-        openScanWifiApp();
+      else if(selectedOption == "WiFi") {
+        openWiFiSubmenu();
       }
-      else if(selectedOption == "BLE Scan") {
-        openBLEScanApp();
-      }
-      else if(selectedOption == "Connect") {
-        openConnectApp();
-      }
-      else if(selectedOption == "Disconnect") {
-        openDisconnectApp(false);
-      }
-      else if(selectedOption == "Erase Wifi") {
-        openDisconnectApp(true);
-      }
-      else if(selectedOption == "STA Info") {
-        openSTAInfoApp();
-      }
-      else if(selectedOption == "Start AP") {
-        openStartAPApp();
-      }
-      else if(selectedOption == "Stop AP") {
-        openDisconnectAPApp();
-      }
-      else if(selectedOption == "AP Info") {
-        openAPInfoApp();
+      else if(selectedOption == "Bluetooth") {
+        openBTSubmenu();
       }
       else if(selectedOption == "Webserver") {
         openWebServerApp();
@@ -250,6 +345,9 @@ void setup() {
       }
       else if(selectedOption == "Reddit") {
         openRedditApp(false);
+      }
+      else if(selectedOption == "Keyboard") {
+        openKeyboardApp();
       }
 
     }
@@ -515,6 +613,150 @@ void openThemeApp() {
     tft.println(themeOptions[i]);
     tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
   }
+  });
+}
+int selectedWiFiMenuOption = 0;
+void openWiFiSubmenu() {
+  isAppOpen = true;
+  tft.fillScreen(BG_THEME);
+  tft.setTextSize(TXT_SIZE);
+  for(int i = 0; i < ArraySize(WiFiMenuOptions); i++) {
+    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
+    if(i == selectedWiFiMenuOption) {
+      tft.setTextColor(BG_THEME, FG_THEME);
+    }
+    else {
+      tft.setTextColor(FG_THEME, BG_THEME);
+    }
+    tft.setCursor(0,(LINE_HEIGHT*i)+1);
+    tft.println(WiFiMenuOptions[i]);
+  }
+  btn1.setClickHandler([](Button2 & b) {
+    if(selectedWiFiMenuOption <= 0) {
+
+    }
+    else {
+      selectedWiFiMenuOption--;
+    }
+    for(int i = 0; i < ArraySize(WiFiMenuOptions); i++) {
+    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
+    if(i == selectedWiFiMenuOption) {
+      tft.setTextColor(BG_THEME, FG_THEME);
+    }
+    else {
+      tft.setTextColor(FG_THEME, BG_THEME);
+    }
+    tft.setCursor(0,(LINE_HEIGHT*i)+1);
+    tft.println(WiFiMenuOptions[i]);
+  }
+  });
+  btn2.setClickHandler([](Button2 & b) {
+    if(selectedWiFiMenuOption > ArraySize(options)) {
+      selectedWiFiMenuOption = 0;
+    }
+    else {
+      selectedWiFiMenuOption++;
+    }
+    for(int i = 0; i < ArraySize(WiFiMenuOptions); i++) {
+    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
+    if(i == selectedWiFiMenuOption) {
+      tft.setTextColor(BG_THEME, FG_THEME);
+    }
+    else {
+      tft.setTextColor(FG_THEME, BG_THEME);
+    }
+    tft.setCursor(0,(LINE_HEIGHT*i)+1);
+    tft.println(WiFiMenuOptions[i]);
+  }
+  });
+  btn2.setLongClickHandler([](Button2 & b) {
+    if(WiFiMenuOptions[selectedWiFiMenuOption] == "Scan WiFi") {
+      openScanWifiApp();
+    }
+    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Connect") {
+      openConnectApp();
+    }
+    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Disconnect") {
+      openDisconnectApp(false);
+    }
+    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "STA info") {
+      openSTAInfoApp();
+    }
+    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Erase WiFi") {
+      openDisconnectApp(true);
+    }
+    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Start AP") {
+      openStartAPApp();
+    }
+    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Stop AP") {
+      openDisconnectAPApp();
+    }
+    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "AP Info") {
+      openAPInfoApp();
+    }
+  });
+}
+int selectedBTMenuOption = 0;
+void openBTSubmenu() {
+  isAppOpen = true;
+  tft.fillScreen(BG_THEME);
+  tft.setTextSize(TXT_SIZE);
+  for(int i = 0; i < ArraySize(BTMenuOptions); i++) {
+    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
+    if(i == selectedBTMenuOption) {
+      tft.setTextColor(BG_THEME, FG_THEME);
+    }
+    else {
+      tft.setTextColor(FG_THEME, BG_THEME);
+    }
+    tft.setCursor(0,(LINE_HEIGHT*i)+1);
+    tft.println(BTMenuOptions[i]);
+  }
+  btn1.setClickHandler([](Button2 & b) {
+    if(selectedBTMenuOption <= 0) {
+
+    }
+    else {
+      selectedBTMenuOption--;
+    }
+    for(int i = 0; i < ArraySize(BTMenuOptions); i++) {
+    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
+    if(i == selectedBTMenuOption) {
+      tft.setTextColor(BG_THEME, FG_THEME);
+    }
+    else {
+      tft.setTextColor(FG_THEME, BG_THEME);
+    }
+    tft.setCursor(0,(LINE_HEIGHT*i)+1);
+    tft.println(BTMenuOptions[i]);
+  }
+  });
+  btn2.setClickHandler([](Button2 & b) {
+    if(selectedBTMenuOption > ArraySize(options)) {
+      selectedBTMenuOption = 0;
+    }
+    else {
+      selectedBTMenuOption++;
+    }
+    for(int i = 0; i < ArraySize(BTMenuOptions); i++) {
+    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
+    if(i == selectedBTMenuOption) {
+      tft.setTextColor(BG_THEME, FG_THEME);
+    }
+    else {
+      tft.setTextColor(FG_THEME, BG_THEME);
+    }
+    tft.setCursor(0,(LINE_HEIGHT*i)+1);
+    tft.println(BTMenuOptions[i]);
+  }
+  });
+  btn2.setLongClickHandler([](Button2 & b) {
+    if(BTMenuOptions[selectedBTMenuOption] == "BLE Scan") {
+      openBLEScanApp();
+    }
+    else if(BTMenuOptions[selectedBTMenuOption] == "Connect") {
+      
+    }
   });
 }
 
@@ -1168,6 +1410,48 @@ void openDisplayApp() {
     }
   });
 }
+
+void openKeyboardApp() {
+  isAppOpen = true;
+  tft.fillScreen(BG_THEME);
+  tft.setCursor(0,0);
+  tft.setTextColor(FG_THEME);
+  WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
+  USB.usbClass(0);
+  USB.usbSubClass(0);
+  USB.usbProtocol(0);
+  Keyboard.begin();
+  USB.begin();
+  if(!WiFi.isConnected()) {
+      tft.setTextColor(TFT_RED, TFT_BLACK);
+      tft.println("Please connect to the internet");
+      return;
+  }
+
+  if (mdns.begin("usbkeyboard")) {
+    tft.println("MDNS responder started");
+    mdns.addService("http", "tcp", 80);
+    mdns.addService("ws", "tcp", 81);
+  }
+  else {
+    tft.println("MDNS.begin failed");
+  }
+  DBG_print(F("Connect to http://usbkeyboard.local or http://"));
+  DBG_println(WiFi.localIP());
+  tft.setTextColor(FG_THEME);
+  tft.setTextSize(TXT_SIZE);
+  tft.setCursor(0,0);
+  tft.println("http://usbkeyboard.local/");
+  server.on("/", handleRootU);
+  server.onNotFound(handleNotFoundU);
+
+  server.begin();
+
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+}
+
+
 void openSensorApp() {
   isAppOpen = true;
   tft.fillScreen(TFT_BLACK);
@@ -1367,6 +1651,15 @@ bool OTASetUP = false;
 void loop() {
   btn1.loop();
   btn2.loop();
+  if(WiFi.isConnected()) {
+    tft.fillCircle(TFT_WIDTH-5, 5, 5, TFT_BLUE);
+  }
+  else if(WiFi.getMode() == WIFI_AP) {
+    tft.fillCircle(TFT_WIDTH-5, 5, 5, TFT_GREENYELLOW);
+  }
+  else {
+    tft.fillCircle(TFT_WIDTH-5, 5, 5, TFT_RED);
+  }
   if(WiFi.isConnected() && !OTASetUP) {
     
   ArduinoOTA
@@ -1383,7 +1676,11 @@ void loop() {
       tft.setTextSize(TXT_SIZE);
       tft.setCursor(0,0);
       tft.println("Updating...");
-      tft.drawRoundRect(0, TFT_HEIGHT/2, (TFT_WIDTH/2)-100, 60, 5, FG_THEME);
+      tft.setCursor(0,40);
+      tft.setTextColor(TFT_RED, TFT_BLACK);
+      tft.println("Do Not Turn Off\nDo Not Disconnect WiFi");
+      tft.drawRect(0, 0, TFT_WIDTH, TFT_HEIGHT, FG_THEME);
+      tft.drawRoundRect(0, TFT_HEIGHT/2, TFT_WIDTH, 60, 5, FG_THEME);
       tft.drawCentreString("0%", TFT_WIDTH/2, TFT_HEIGHT/2, 0);
       Serial.println("Start updating " + type);
     })
@@ -1391,22 +1688,37 @@ void loop() {
       Serial.println("\nEnd");
     })
     .onProgress([](unsigned int progress, unsigned int total) {
-      tft.fillRoundRect(0, TFT_HEIGHT/2, ((TFT_WIDTH/2)-100)+(progress / (total / 100)), 60, 5, FG_THEME);
+      tft.fillRoundRect(0, TFT_HEIGHT/2, ((TFT_WIDTH)-100)+(progress / (total / 100)), 60, 5, FG_THEME);
+      tft.fillRect(0, TFT_HEIGHT, TFT_WIDTH, ((progress / (total / 100))*TFT_HEIGHT), FG_THEME);
       String temp = (progress / (total / 100)) + "%";
-      tft.drawCentreString(temp, TFT_WIDTH/2, TFT_HEIGHT/2, 0);
+      tft.setCursor(TFT_WIDTH/2, 20);
+      tft.setTextColor(FG_THEME, BG_THEME);
+      tft.print(temp);
       Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
     })
     .onError([](ota_error_t error) {
       Serial.printf("Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+      tft.setCursor(0,0);
+      tft.setTextColor(TFT_RED, TFT_BLACK);
+      if (error == OTA_AUTH_ERROR) tft.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) tft.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) tft.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) tft.println("Receive Failed");
+      else if (error == OTA_END_ERROR) tft.println("End Failed");
     });
 
   ArduinoOTA.begin();
   OTASetUP = true;
+  }
+  if(selectedOption == "Keyboard" && isAppOpen) {
+    webSocket.loop();
+    server.handleClient();
+    if(BG_THEME != TFT_GREEN) {
+      tft.fillCircle(TFT_WIDTH-10, 10, 5, TFT_GREEN);
+    }
+    else {
+      tft.fillCircle(TFT_WIDTH-10, 10, 5, TFT_RED);
+    }
   }
   if(selectedOption == "Sensors" && isAppOpen) {
     // Time Section
@@ -1440,8 +1752,12 @@ void loop() {
   }
   if(serverOn) {
     server.handleClient();
+    tft.fillCircle(TFT_WIDTH-20, 5, 5, TFT_GREEN);
   }
-  if(webserverOptions[selectedWebserverOption] == "HTTPS Server" && isAppOpen && httpsServerOn) {
+  else {
+    tft.fillCircle(TFT_WIDTH-20, 5, 5, TFT_RED);
+  }
+  if(webserverOptions[selectedWebserverOption] == "HTTPS Server" || isAppOpen && httpsServerOn) {
     secureServer->loop();
   }
   ArduinoOTA.handle();
