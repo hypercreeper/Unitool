@@ -1410,7 +1410,7 @@ void openDisplayApp() {
     }
   });
 }
-
+bool KeyboardOn = false;
 void openKeyboardApp() {
   isAppOpen = true;
   tft.fillScreen(BG_THEME);
@@ -1440,8 +1440,8 @@ void openKeyboardApp() {
   DBG_println(WiFi.localIP());
   tft.setTextColor(FG_THEME);
   tft.setTextSize(TXT_SIZE);
-  tft.setCursor(0,0);
   tft.println("http://usbkeyboard.local/");
+  tft.println("press right button to shutdown");
   server.on("/", handleRootU);
   server.onNotFound(handleNotFoundU);
 
@@ -1449,6 +1449,15 @@ void openKeyboardApp() {
 
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+  KeyboardOn = true;
+  btn2.setClickHandler([](Button2 & b) {
+    server.close();
+    webSocket.close();
+    tft.fillScreen(BG_THEME);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.println("Keyboard offline");
+    KeyboardOn = false;
+  });
 }
 
 
@@ -1686,14 +1695,21 @@ void loop() {
     })
     .onEnd([]() {
       Serial.println("\nEnd");
+      tft.fillScreen(TFT_BLACK);
+      tft.setTextColor(TFT_GREEN);
+      tft.setCursor(0,0);
+      tft.println("Update Complete");
+      tft.println("Rebooting...");
+      tft.fillRoundRect(0, TFT_HEIGHT/2, TFT_WIDTH, 60, 5, TFT_GREEN);
+      delay(1000);
     })
     .onProgress([](unsigned int progress, unsigned int total) {
-      tft.fillRoundRect(0, TFT_HEIGHT/2, ((TFT_WIDTH)-100)+(progress / (total / 100)), 60, 5, FG_THEME);
-      tft.fillRect(0, TFT_HEIGHT, TFT_WIDTH, ((progress / (total / 100))*TFT_HEIGHT), FG_THEME);
-      String temp = (progress / (total / 100)) + "%";
+      tft.fillRoundRect(0, TFT_HEIGHT/2, ((progress / (total / 100))*TFT_WIDTH)/100, 60, 5, FG_THEME);
+      // tft.fillRect(0, TFT_HEIGHT, TFT_WIDTH, ((progress / (total / 100))*TFT_HEIGHT), FG_THEME);
       tft.setCursor(TFT_WIDTH/2, 20);
       tft.setTextColor(FG_THEME, BG_THEME);
-      tft.print(temp);
+      tft.print((progress / (total / 100)));
+      tft.print("%");
       Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
     })
     .onError([](ota_error_t error) {
@@ -1710,14 +1726,14 @@ void loop() {
   ArduinoOTA.begin();
   OTASetUP = true;
   }
-  if(selectedOption == "Keyboard" && isAppOpen) {
+  if(selectedOption == "Keyboard" && isAppOpen || KeyboardOn) {
     webSocket.loop();
     server.handleClient();
     if(BG_THEME != TFT_GREEN) {
-      tft.fillCircle(TFT_WIDTH-10, 10, 5, TFT_GREEN);
+      tft.fillCircle(TFT_WIDTH-35, 5, 5, TFT_GREEN);
     }
     else {
-      tft.fillCircle(TFT_WIDTH-10, 10, 5, TFT_RED);
+      tft.fillCircle(TFT_WIDTH-35, 5, 5, TFT_RED);
     }
   }
   if(selectedOption == "Sensors" && isAppOpen) {
