@@ -64,11 +64,11 @@ HTTPClient redditClient;
 
 uint32_t BG_THEME = TFT_BLACK;
 uint32_t FG_THEME = TFT_WHITE;
-char* SSIDs[] = {"Moukayed", "Belkin.069", "Mohamad's Room", "Diff. Network"};
-char* Passwords[] = {"0566870554", "0566870554", "Mohamad2008!"};
+char* SSIDs[] = {"Moukayed", "Belkin.069", "Mohamad's Room", "AMB-STUDENT", "Diff. Network"};
+char* Passwords[] = {"0566870554", "0566870554", "Mohamad2008!", ""};
 char* WiFiMenuOptions[] = {"Scan WiFi", "Connect", "Disconnect", "STA info", "Erase WiFi", "Start AP", "Stop AP", "AP Info"};
 char* BTMenuOptions[] = {"BLE Scan"};
-String options[] = {"WiFi", "Bluetooth", "Webserver","Theme", "Display", "Sensors", "Reddit", "Keyboard"};
+String options[] = {"WiFi", "Bluetooth", "ESP32 mDNS", "Webserver","Theme", "Display", "Sensors", "Reddit", "Keyboard"};
 String reddit_json = "";
 bool optionsEnabled[] = {true, true, true, true, true, true, true, true};
 int selectedIndex = 0;
@@ -105,6 +105,7 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 USBHIDKeyboard Keyboard;
 
 MDNSResponder mdns;
+
 
 
 #include "index_html.h"
@@ -271,6 +272,9 @@ void setup() {
       else if(selectedOption == "Keyboard") {
         openKeyboardApp();
       }
+      else if(selectedOption == "ESP32 mDNS") {
+        openmDNSApp();
+      }
     }
   });
   btn2.setClickHandler([](Button2 & b) {
@@ -348,6 +352,9 @@ void setup() {
       }
       else if(selectedOption == "Keyboard") {
         openKeyboardApp();
+      }
+      else if(selectedOption == "ESP32 mDNS") {
+        openmDNSApp();
       }
 
     }
@@ -1297,6 +1304,38 @@ void handleRoot() {
   delay(2000);
   tft.fillRect(0,TFT_HEIGHT-60, TFT_WIDTH, 60, BG_THEME);
 }
+void openmDNSApp() {
+  isAppOpen = true;
+  tft.fillScreen(BG_THEME);
+  tft.setTextColor(FG_THEME);
+  tft.setCursor(0,0);
+  if(MDNS.begin("ESP32")) {
+    tft.println("mDNS Responder Started");
+  }
+  else {
+    tft.println("mDNS Repsonder failed to start");
+  }
+  int n = MDNS.queryService("http", "tcp");
+  if (n == 0) {
+    tft.println("No services found");
+  } else {
+    tft.print(n);
+    tft.println(" service(s) found");
+
+    for (int i = 0; i < n; i++) {
+      tft.print("  ");
+      tft.print(i + 1);
+      tft.print(": ");
+      tft.print(MDNS.hostname(i));
+      tft.print(" (");
+      tft.print(MDNS.IP(i));
+      tft.print(":");
+      tft.print(MDNS.port(i));
+      tft.println(")");
+    }
+  }
+}
+
 char* displayOptions[] = {"Display Test", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Black", "White"};
 int selectedDisplayOption = 0;
 void openDisplayApp() {
