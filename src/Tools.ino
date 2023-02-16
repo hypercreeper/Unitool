@@ -106,7 +106,7 @@ USBHIDKeyboard Keyboard;
 
 MDNSResponder mdns;
 
-
+TaskHandle_t BGProcess;
 
 #include "index_html.h"
 
@@ -175,6 +175,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
         }
         if (strcmp(event, "touch start") == 0) {
           Keyboard.press(Keycodes[row][col]);
+          // tft.println(Keycodes[row][col]);
         }
         else if (strcmp(event, "touch end") == 0) {
           Keyboard.release(Keycodes[row][col]);
@@ -224,7 +225,7 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
       tft.println(advertisedDevice.getName().c_str());
       tft.print("Address: ");
       tft.println(advertisedDevice.getAddress().toString().c_str());
-      tft.print("?: ");
+      tft.print("Icon: ");
       tft.println((char*)advertisedDevice.getAppearance());
       // tft.print("RSSI: ");
       // tft.println((char *)advertisedDevice.getRSSI());
@@ -232,6 +233,11 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     }
 };
 
+void BackgroundProcesses(void * parameter) {
+  for(;;) {
+    // create the program
+  }
+}
 
 void setup() {
   // put your setup code here, to run once:
@@ -361,6 +367,14 @@ void setup() {
   });
     DisplayHomeScreen();
   });
+  xTaskCreatePinnedToCore(
+      BackgroundProcesses, /* Function to implement the task */
+      "Background Processes", /* Name of the task */
+      10000,  /* Stack size in words */
+      NULL,  /* Task input parameter */
+      0,  /* Priority of the task */
+      &BGProcess,  /* Task handle. */
+      0); /* Core where the task should run */
 }
 
 void setTheme(bool Light) {
@@ -382,6 +396,7 @@ bool isThemeLight() {
   }
 }
 void DisplayHomeScreen() {
+  tft.setRotation(0);
   tft.fillScreen(BG_THEME);
   tft.setTextSize(TXT_SIZE);
   for(int i = 0; i < ArraySize(options); i++) {
@@ -1306,6 +1321,7 @@ void handleRoot() {
 }
 void openmDNSApp() {
   isAppOpen = true;
+  tft.setRotation(1);
   tft.fillScreen(BG_THEME);
   tft.setTextColor(FG_THEME);
   tft.setCursor(0,0);
@@ -1315,7 +1331,7 @@ void openmDNSApp() {
   else {
     tft.println("mDNS Repsonder failed to start");
   }
-  int n = MDNS.queryService("http", "tcp");
+  int n = MDNS.queryService("_http", "tcp");
   if (n == 0) {
     tft.println("No services found");
   } else {
@@ -1323,7 +1339,6 @@ void openmDNSApp() {
     tft.println(" service(s) found");
 
     for (int i = 0; i < n; i++) {
-      tft.print("  ");
       tft.print(i + 1);
       tft.print(": ");
       tft.print(MDNS.hostname(i));
