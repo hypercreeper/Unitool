@@ -68,14 +68,14 @@ char* SSIDs[] = {"Moukayed", "Belkin.069", "Mohamad's Room", "AMB-STUDENT", "Dif
 char* Passwords[] = {"0566870554", "0566870554", "Mohamad2008!", ""};
 char* WiFiMenuOptions[] = {"Scan WiFi", "Connect", "Disconnect", "STA info", "Erase WiFi", "Start AP", "Stop AP", "AP Info"};
 char* BTMenuOptions[] = {"BLE Scan"};
-String options[] = {"WiFi", "Bluetooth", "ESP32 mDNS", "Webserver","Theme", "Display", "Sensors", "Reddit", "Keyboard"};
+char* HomeOptions[] = {"WiFi", "Bluetooth", "ESP32 mDNS", "Webserver","Theme", "Display", "Sensors", "Reddit", "Keyboard", "Unlock"};
 String reddit_json = "";
 bool optionsEnabled[] = {true, true, true, true, true, true, true, true};
-int selectedIndex = 0;
-String selectedOption = "WiFi";
 char buff[512];
 bool isAppOpen = false;
 bool staapmodepublic = false;
+char* publicSelectedOption = "WiFi";
+int publicSelectedIndex = 0;
 #define TXT_SIZE 2
 #define LINE_HEIGHT 20
 
@@ -105,8 +105,6 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 USBHIDKeyboard Keyboard;
 
 MDNSResponder mdns;
-
-TaskHandle_t BGProcess;
 
 #include "index_html.h"
 
@@ -233,10 +231,87 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     }
 };
 
-void BackgroundProcesses(void * parameter) {
-  for(;;) {
-    // create the program
-  }
+int selectedIndexPrivate = 0;
+void createList(char* options[], int length, void (*callback)(char* selectedOption, int selectedIndex), uint32_t BG, uint32_t FG, int txtSize, int lineHeight) {
+    drawList(options, length, BG, FG, txtSize, lineHeight);
+    btn2.setClickHandler([options, BG, FG, txtSize, lineHeight, length](Button2 & b) {
+        if(selectedIndexPrivate >= length-1) {
+            selectedIndexPrivate = 0;
+        }
+        else {
+            selectedIndexPrivate++;
+        }
+        drawList(options, length, BG, FG, txtSize, lineHeight);
+    });
+    btn1.setClickHandler([options, BG, FG, txtSize, lineHeight, length](Button2 & b) {
+            if(selectedIndexPrivate <= 0) {
+                selectedIndexPrivate = length-1;
+            }
+            else {
+                selectedIndexPrivate--;
+            }
+            drawList(options, length, BG, FG, txtSize, lineHeight);
+    });
+    btn2.setLongClickHandler([callback, options](Button2 & b) {
+      char* selectedOption = options[selectedIndexPrivate];
+      callback(selectedOption, selectedIndexPrivate);
+      selectedIndexPrivate = 0;
+    });
+}
+void drawList(char* options[], int length, uint32_t BG, uint32_t FG, int txtSize, int lineHeight){
+    tft.setRotation(0);
+    tft.fillScreen(BG);
+    tft.setTextSize(txtSize);
+    for(int i = 0; i < length; i++) {
+        tft.drawRect(0, 0, TFT_WIDTH, lineHeight+(lineHeight*i), FG);
+        if(i == selectedIndexPrivate) {
+            tft.setTextColor(BG, FG);
+        }
+        else {
+            tft.setTextColor(FG, BG);
+        }
+        tft.setCursor(0,(lineHeight*i)+1);
+        tft.println(options[i]);
+    }
+}
+
+
+
+
+
+void homeMenuCallback(char* selectedOption, int selectedIndex) {
+  if(isAppOpen == false) {
+      if(selectedOption == "Theme") {
+        openThemeApp();
+      }
+      else if(selectedOption == "WiFi") {
+        openWiFiSubmenu();
+      }
+      else if(selectedOption == "Bluetooth") {
+        openBTSubmenu();
+      }
+      else if(selectedOption == "Webserver") {
+        openWebServerApp();
+      }
+      else if(selectedOption == "Display") {
+        openDisplayApp();
+      }
+      else if(selectedOption == "Sensors") {
+        openSensorApp();
+      }
+      else if(selectedOption == "Reddit") {
+        openRedditApp(false);
+      }
+      else if(selectedOption == "Keyboard") {
+        openKeyboardApp();
+      }
+      else if(selectedOption == "ESP32 mDNS") {
+        openmDNSApp();
+      }
+      else if(selectedOption == "Unlock") {
+        openUnlockApp();
+      }
+    }
 }
 
 void setup() {
@@ -252,129 +327,10 @@ void setup() {
   dht.begin();
   BLEDevice::init("ESP32");
   DisplayHomeScreen();
-  btn2.setLongClickHandler([](Button2 & b) {
-    if(isAppOpen == false) {
-      if(selectedOption == "Theme") {
-        openThemeApp();
-      }
-      else if(selectedOption == "WiFi") {
-        openWiFiSubmenu();
-      }
-      else if(selectedOption == "Bluetooth") {
-        openBTSubmenu();
-      }
-      else if(selectedOption == "Webserver") {
-        openWebServerApp();
-      }
-      else if(selectedOption == "Display") {
-        openDisplayApp();
-      }
-      else if(selectedOption == "Sensors") {
-        openSensorApp();
-      }
-      else if(selectedOption == "Reddit") {
-        openRedditApp(false);
-      }
-      else if(selectedOption == "Keyboard") {
-        openKeyboardApp();
-      }
-      else if(selectedOption == "ESP32 mDNS") {
-        openmDNSApp();
-      }
-    }
-  });
-  btn2.setClickHandler([](Button2 & b) {
-      if(isAppOpen == false) {
-        if(selectedIndex >= ArraySize(options)-1) {
-          selectedIndex = 0;
-        }
-        else {
-          selectedIndex++;
-        }
-        selectedOption = options[selectedIndex];
-        DisplayHomeScreen();
-      }
-  });
-  btn1.setClickHandler([](Button2 & b) {
-      if(isAppOpen == false) {
-        if(selectedIndex <= 0) {
-          selectedIndex = ArraySize(options)-1;
-        }
-        else {
-          selectedIndex--;
-        }
-        selectedOption = options[selectedIndex];
-        DisplayHomeScreen();
-      }
-  });
   btn1.setDoubleClickHandler([](Button2 & b) {
     isAppOpen = false;
-    btn2.setClickHandler([](Button2 & b) {
-      if(isAppOpen == false) {
-        if(selectedIndex >= ArraySize(options)-1) {
-          selectedIndex = 0;
-        }
-        else {
-          selectedIndex++;
-        }
-        selectedOption = options[selectedIndex];
-        DisplayHomeScreen();
-      }
-  });
-  btn1.setClickHandler([](Button2 & b) {
-      if(isAppOpen == false) {
-        if(selectedIndex <= 0) {
-          selectedIndex = ArraySize(options)-1;
-        }
-        else {
-          selectedIndex--;
-        }
-        selectedOption = options[selectedIndex];
-        DisplayHomeScreen();
-      }
-  });
-    btn2.setLongClickHandler([](Button2 & b) {
-    if(isAppOpen == false) {
-      if(selectedOption == "Theme") {
-        openThemeApp();
-      }
-      else if(selectedOption == "WiFi") {
-        openWiFiSubmenu();
-      }
-      else if(selectedOption == "Bluetooth") {
-        openBTSubmenu();
-      }
-      else if(selectedOption == "Webserver") {
-        openWebServerApp();
-      }
-      else if(selectedOption == "Display") {
-        openDisplayApp();
-      }
-      else if(selectedOption == "Sensors") {
-        openSensorApp();
-      }
-      else if(selectedOption == "Reddit") {
-        openRedditApp(false);
-      }
-      else if(selectedOption == "Keyboard") {
-        openKeyboardApp();
-      }
-      else if(selectedOption == "ESP32 mDNS") {
-        openmDNSApp();
-      }
-
-    }
-  });
     DisplayHomeScreen();
   });
-  xTaskCreatePinnedToCore(
-      BackgroundProcesses, /* Function to implement the task */
-      "Background Processes", /* Name of the task */
-      10000,  /* Stack size in words */
-      NULL,  /* Task input parameter */
-      0,  /* Priority of the task */
-      &BGProcess,  /* Task handle. */
-      0); /* Core where the task should run */
 }
 
 void setTheme(bool Light) {
@@ -396,23 +352,7 @@ bool isThemeLight() {
   }
 }
 void DisplayHomeScreen() {
-  tft.setRotation(0);
-  tft.fillScreen(BG_THEME);
-  tft.setTextSize(TXT_SIZE);
-  for(int i = 0; i < ArraySize(options); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(options[i].indexOf("|") != -1) {
-      tft.setTextColor(TFT_BLACK, TFT_RED);
-    }
-    else if(i == selectedIndex) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(options[i]);
-  }
+  createList(HomeOptions, ArraySize(HomeOptions), homeMenuCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
 }
 // Apps Start here
 // Define an app using void openAppName() {}
@@ -432,354 +372,88 @@ void DisplayHomeScreen() {
 
 
 char* themeOptions[] = {"Dark", "Light", "Red", "Orange", "Yellow", "Green", "Blue", "Purple"};
-int selectedThemeOptions = 0;
+
+void themeCallback(char* selectedThemeOption, int selectedThemeIndex) {
+  if(selectedThemeOption == "Red") {
+    BG_THEME = TFT_RED;
+    FG_THEME = TFT_WHITE;
+  }
+  else if(selectedThemeOption == "Orange") {
+    BG_THEME = TFT_ORANGE;
+    FG_THEME = TFT_BLACK;
+  }
+  else if(selectedThemeOption == "Yellow") {
+    BG_THEME = TFT_YELLOW;
+    FG_THEME = TFT_BLACK;
+  }
+  else if(selectedThemeOption == "Green") {
+    BG_THEME = TFT_GREEN;
+    FG_THEME = TFT_BLACK;
+  }
+  else if(selectedThemeOption == "Blue") {
+    BG_THEME = TFT_BLUE;
+    FG_THEME = TFT_WHITE;
+  }
+  else if(selectedThemeOption == "Purple") {
+    BG_THEME = TFT_PURPLE;
+    FG_THEME = TFT_WHITE;
+  }
+  else if(selectedThemeOption == "Dark") {
+    BG_THEME = TFT_BLACK;
+    FG_THEME = TFT_WHITE;
+  }
+  else if(selectedThemeOption == "Light") {
+    BG_THEME = TFT_WHITE;
+    FG_THEME = TFT_BLACK;
+  }
+}
 void openThemeApp() {
   isAppOpen = true;
-  tft.fillScreen(BG_THEME);
-  tft.setTextSize(TXT_SIZE);
-  for(int i = 0; i < ArraySize(themeOptions); i++) {
-    if(i == selectedThemeOptions) {
-      if(themeOptions[i] == "Red") {
-        tft.fillScreen(TFT_RED);
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      }
-      else if(themeOptions[i] == "Orange") {
-        tft.fillScreen(TFT_ORANGE);
-        tft.setTextColor(TFT_BLACK, TFT_WHITE);
-      }
-      else if(themeOptions[i] == "Yellow") {
-        tft.fillScreen(TFT_YELLOW);
-        tft.setTextColor(TFT_BLACK, TFT_WHITE);
-      }
-      else if(themeOptions[i] == "Green") {
-        tft.fillScreen(TFT_GREEN);
-        tft.setTextColor(TFT_BLACK, TFT_WHITE);
-      }
-      else if(themeOptions[i] == "Blue") {
-        tft.fillScreen(TFT_BLUE);
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      }
-      else if(themeOptions[i] == "Purple") {
-        tft.fillScreen(TFT_PURPLE);
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      }
-      else if(themeOptions[i] == "Dark") {
-        tft.fillScreen(TFT_BLACK);
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      }
-      else if(themeOptions[i] == "Light") {
-        tft.fillScreen(TFT_WHITE);
-        tft.setTextColor(TFT_BLACK, TFT_WHITE);
-      }
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-  }
-  for(int i = 0; i < ArraySize(themeOptions); i++) {
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(themeOptions[i]);
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-  }
-  
-  btn1.setClickHandler([](Button2 & b) {
-    if(selectedThemeOptions <= 0) {
-
-    }
-    else {
-      selectedThemeOptions--;
-    }
-    tft.fillScreen(BG_THEME);
-    for(int i = 0; i < ArraySize(themeOptions); i++) {
-      if(i == selectedThemeOptions) {
-        if(themeOptions[i] == "Red") {
-          tft.fillScreen(TFT_RED);
-          tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        }
-        else if(themeOptions[i] == "Orange") {
-          tft.fillScreen(TFT_ORANGE);
-          tft.setTextColor(TFT_BLACK, TFT_WHITE);
-        }
-        else if(themeOptions[i] == "Yellow") {
-          tft.fillScreen(TFT_YELLOW);
-          tft.setTextColor(TFT_BLACK, TFT_WHITE);
-        }
-        else if(themeOptions[i] == "Green") {
-          tft.fillScreen(TFT_GREEN);
-          tft.setTextColor(TFT_BLACK, TFT_WHITE);
-        }
-        else if(themeOptions[i] == "Blue") {
-          tft.fillScreen(TFT_BLUE);
-          tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        }
-        else if(themeOptions[i] == "Purple") {
-          tft.fillScreen(TFT_PURPLE);
-          tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        }
-        else if(themeOptions[i] == "Dark") {
-          tft.fillScreen(TFT_BLACK);
-          tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        }
-        else if(themeOptions[i] == "Light") {
-          tft.fillScreen(TFT_WHITE);
-          tft.setTextColor(TFT_BLACK, TFT_WHITE);
-        }
-      }
-      else {
-        tft.setTextColor(FG_THEME, BG_THEME);
-      }
-    }
-    for(int i = 0; i < ArraySize(themeOptions); i++) {
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(themeOptions[i]);
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-  }
-  });
-  btn2.setClickHandler([](Button2 & b) {
-    if(selectedThemeOptions > ArraySize(themeOptions)) {
-      selectedThemeOptions = 0;
-    }
-    else {
-      selectedThemeOptions++;
-    }
-    tft.fillScreen(BG_THEME);
-    for(int i = 0; i < ArraySize(themeOptions); i++) {
-      if(i == selectedThemeOptions) {
-        tft.setTextColor(BG_THEME, FG_THEME);
-        if(themeOptions[i] == "Red") {
-          tft.fillScreen(TFT_RED);
-          tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        }
-        else if(themeOptions[i] == "Orange") {
-          tft.fillScreen(TFT_ORANGE);
-          tft.setTextColor(TFT_BLACK, TFT_WHITE);
-        }
-        else if(themeOptions[i] == "Yellow") {
-          tft.fillScreen(TFT_YELLOW);
-          tft.setTextColor(TFT_BLACK, TFT_WHITE);
-        }
-        else if(themeOptions[i] == "Green") {
-          tft.fillScreen(TFT_GREEN);
-          tft.setTextColor(TFT_BLACK, TFT_WHITE);
-        }
-        else if(themeOptions[i] == "Blue") {
-          tft.fillScreen(TFT_BLUE);
-          tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        }
-        else if(themeOptions[i] == "Purple") {
-          tft.fillScreen(TFT_PURPLE);
-          tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        }
-        else if(themeOptions[i] == "Dark") {
-          tft.fillScreen(TFT_BLACK);
-          tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        }
-        else if(themeOptions[i] == "Light") {
-          tft.fillScreen(TFT_WHITE);
-          tft.setTextColor(TFT_BLACK, TFT_WHITE);
-        }
-      }
-      else {
-        tft.setTextColor(FG_THEME, BG_THEME);
-      }
-    }
-    for(int i = 0; i < ArraySize(themeOptions); i++) {
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(themeOptions[i]);
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-  }
-  });
-  btn2.setLongClickHandler([](Button2 & b) {
-    for(int i = 0; i < ArraySize(themeOptions); i++) {
-      if(i == selectedThemeOptions) {
-        tft.setTextColor(BG_THEME, FG_THEME);
-        if(themeOptions[i] == "Red") {
-          BG_THEME = TFT_RED;
-          FG_THEME = TFT_WHITE;
-        }
-        else if(themeOptions[i] == "Orange") {
-          BG_THEME = TFT_ORANGE;
-          FG_THEME = TFT_BLACK;
-        }
-        else if(themeOptions[i] == "Yellow") {
-          BG_THEME = TFT_YELLOW;
-          FG_THEME = TFT_BLACK;
-        }
-        else if(themeOptions[i] == "Green") {
-          BG_THEME = TFT_GREEN;
-          FG_THEME = TFT_BLACK;
-        }
-        else if(themeOptions[i] == "Blue") {
-          BG_THEME = TFT_BLUE;
-          FG_THEME = TFT_WHITE;
-        }
-        else if(themeOptions[i] == "Purple") {
-          BG_THEME = TFT_PURPLE;
-          FG_THEME = TFT_WHITE;
-        }
-        else if(themeOptions[i] == "Dark") {
-          BG_THEME = TFT_BLACK;
-          FG_THEME = TFT_WHITE;
-        }
-        else if(themeOptions[i] == "Light") {
-          BG_THEME = TFT_WHITE;
-          FG_THEME = TFT_BLACK;
-        }
-      }
-      else {
-        tft.setTextColor(FG_THEME, BG_THEME);
-      }
-    }
-    for(int i = 0; i < ArraySize(themeOptions); i++) {
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(themeOptions[i]);
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-  }
-  });
+  createList(themeOptions, ArraySize(themeOptions), themeCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
 }
-int selectedWiFiMenuOption = 0;
-void openWiFiSubmenu() {
-  isAppOpen = true;
-  tft.fillScreen(BG_THEME);
-  tft.setTextSize(TXT_SIZE);
-  for(int i = 0; i < ArraySize(WiFiMenuOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedWiFiMenuOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(WiFiMenuOptions[i]);
-  }
-  btn1.setClickHandler([](Button2 & b) {
-    if(selectedWiFiMenuOption <= 0) {
 
-    }
-    else {
-      selectedWiFiMenuOption--;
-    }
-    for(int i = 0; i < ArraySize(WiFiMenuOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedWiFiMenuOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(WiFiMenuOptions[i]);
-  }
-  });
-  btn2.setClickHandler([](Button2 & b) {
-    if(selectedWiFiMenuOption > ArraySize(options)) {
-      selectedWiFiMenuOption = 0;
-    }
-    else {
-      selectedWiFiMenuOption++;
-    }
-    for(int i = 0; i < ArraySize(WiFiMenuOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedWiFiMenuOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(WiFiMenuOptions[i]);
-  }
-  });
-  btn2.setLongClickHandler([](Button2 & b) {
-    if(WiFiMenuOptions[selectedWiFiMenuOption] == "Scan WiFi") {
+void WiFiSubmenuCallback(char* SelectedWiFiSubmenuOption, int SelectedWiFiSubmenuIndex) {
+  if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "Scan WiFi") {
       openScanWifiApp();
     }
-    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Connect") {
+    else if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "Connect") {
       openConnectApp();
     }
-    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Disconnect") {
+    else if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "Disconnect") {
       openDisconnectApp(false);
     }
-    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "STA info") {
+    else if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "STA info") {
       openSTAInfoApp();
     }
-    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Erase WiFi") {
+    else if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "Erase WiFi") {
       openDisconnectApp(true);
     }
-    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Start AP") {
+    else if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "Start AP") {
       openStartAPApp();
     }
-    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "Stop AP") {
+    else if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "Stop AP") {
       openDisconnectAPApp();
     }
-    else if(WiFiMenuOptions[selectedWiFiMenuOption] == "AP Info") {
+    else if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "AP Info") {
       openAPInfoApp();
     }
-  });
 }
-int selectedBTMenuOption = 0;
+void openWiFiSubmenu() {
+  isAppOpen = true;
+  createList(WiFiMenuOptions, ArraySize(WiFiMenuOptions), themeCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
+}
+
+void BTMenuCallback(char* BTMenuSelectedOption, int BTMenuSelectedIndex) {
+  if(BTMenuOptions[BTMenuSelectedIndex] == "BLE Scan") {
+      openBLEScanApp();
+  }
+  else if(BTMenuOptions[BTMenuSelectedIndex] == "Connect") {
+     
+  }
+}
 void openBTSubmenu() {
   isAppOpen = true;
-  tft.fillScreen(BG_THEME);
-  tft.setTextSize(TXT_SIZE);
-  for(int i = 0; i < ArraySize(BTMenuOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedBTMenuOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(BTMenuOptions[i]);
-  }
-  btn1.setClickHandler([](Button2 & b) {
-    if(selectedBTMenuOption <= 0) {
-
-    }
-    else {
-      selectedBTMenuOption--;
-    }
-    for(int i = 0; i < ArraySize(BTMenuOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedBTMenuOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(BTMenuOptions[i]);
-  }
-  });
-  btn2.setClickHandler([](Button2 & b) {
-    if(selectedBTMenuOption > ArraySize(options)) {
-      selectedBTMenuOption = 0;
-    }
-    else {
-      selectedBTMenuOption++;
-    }
-    for(int i = 0; i < ArraySize(BTMenuOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedBTMenuOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(BTMenuOptions[i]);
-  }
-  });
-  btn2.setLongClickHandler([](Button2 & b) {
-    if(BTMenuOptions[selectedBTMenuOption] == "BLE Scan") {
-      openBLEScanApp();
-    }
-    else if(BTMenuOptions[selectedBTMenuOption] == "Connect") {
-      
-    }
-  });
+  createList(BTMenuOptions, ArraySize(BTMenuOptions), BTMenuCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
 }
 
 void openScanWifiApp() {
@@ -823,73 +497,19 @@ void openBLEScanApp() {
   tft.println("Scan done!");
 }
 
-int selectedWifiDetails = 0;
-void openConnectApp() {
-  isAppOpen = true;
-  tft.fillScreen(BG_THEME);
-  tft.setTextSize(TXT_SIZE);
-  for(int i = 0; i < ArraySize(SSIDs); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedWifiDetails) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(SSIDs[i]);
-  }
-  btn1.setClickHandler([](Button2 & b) {
-    if(selectedWifiDetails <= 0) {
-
-    }
-    else {
-      selectedWifiDetails--;
-    }
-    for(int i = 0; i < ArraySize(SSIDs); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedWifiDetails) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(SSIDs[i]);
-  }
-  });
-  btn2.setClickHandler([](Button2 & b) {
-    if(selectedWifiDetails > ArraySize(options)) {
-      selectedWifiDetails = 0;
-    }
-    else {
-      selectedWifiDetails++;
-    }
-    for(int i = 0; i < ArraySize(SSIDs); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedWifiDetails) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(SSIDs[i]);
-  }
-  });
-  btn2.setLongClickHandler([](Button2 & b) {
-    if(!staapmodepublic) {
+void connectCallback(char* ConnectSelectedOption, int ConnectSelectedIndex) {
+  if(!staapmodepublic) {
       WiFi.mode(WIFI_STA);
       WiFi.disconnect();
     }
-    if(SSIDs[selectedWifiDetails] != "Diff. Network") {
-      WiFi.begin(SSIDs[selectedWifiDetails], Passwords[selectedWifiDetails]);
+    if(SSIDs[ConnectSelectedIndex] != "Diff. Network") {
+      WiFi.begin(SSIDs[ConnectSelectedIndex], Passwords[ConnectSelectedIndex]);
       tft.setTextColor(FG_THEME);
       tft.setCursor(0,0);
       int retrycon = 25;
       tft.fillScreen(BG_THEME);
       tft.print("Connecting to ");
-      tft.print(SSIDs[selectedWifiDetails]);
+      tft.print(SSIDs[ConnectSelectedIndex]);
       tft.println("...");
       while (WiFi.status() != WL_CONNECTED)
       {
@@ -924,7 +544,11 @@ void openConnectApp() {
     if(staapmodepublic) {
       staapmodepublic = false;
     }
-  });
+}
+void openConnectApp() {
+  isAppOpen = true;
+  createList(SSIDs, ArraySize(SSIDs), connectCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
+  
 }
 void openDisconnectApp(bool eraseCred) {
   WiFi.disconnect(eraseCred);
@@ -956,88 +580,36 @@ void openSTAInfoApp() {
   tft.println(WiFi.broadcastIP());
 
   tft.print("\nSSID: ");
-  tft.println(WiFi.SSID());
+  tft.print(WiFi.SSID());
 
   tft.print("\nPSK: \n");
   tft.println(WiFi.psk());
 
 }
 int selectedAPOption = 0;
-String APOptions[] = {"Basic AP", "Dif. SSID AP", "Hidden AP", "One use AP", "AP IPv6", "STA+AP Mode"};
+char* APOptions[] = {"Basic AP", "Dif. SSID AP", "Hidden AP", "One use AP", "AP IPv6", "STA+AP Mode"};
 char* RandString[] = {"a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","1","2","3","4","5","6","7","8","9","0"};
 char TempSSID[12];
 char TempPWD[12];
 const char* blank = "";
-void openStartAPApp() {
-  isAppOpen = true;
-  tft.fillScreen(BG_THEME);
-  tft.setTextSize(TXT_SIZE);
-  for(int i = 0; i < ArraySize(APOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedAPOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(APOptions[i]);
-  }
-  btn1.setClickHandler([](Button2 & b) {
-    if(selectedAPOption <= 0) {
 
-    }
-    else {
-      selectedAPOption--;
-    }
-    for(int i = 0; i < ArraySize(APOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedAPOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(APOptions[i]);
-  }
-  });
-  btn2.setClickHandler([](Button2 & b) {
-    if(selectedAPOption > ArraySize(options)) {
-      selectedAPOption = 0;
-    }
-    else {
-      selectedAPOption++;
-    }
-    for(int i = 0; i < ArraySize(APOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedAPOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(APOptions[i]);
-  }
-  });
-  btn2.setLongClickHandler([](Button2 & b) {
-    WiFi.mode(WIFI_AP);
-    if(APOptions[selectedAPOption] == "Basic AP") {
+void StartAPCallback(char* selectedAPOption, int selectedAPIndex) {
+  WiFi.mode(WIFI_AP);
+    if(APOptions[selectedAPIndex] == "Basic AP") {
       WiFi.softAP("ESP32 AP", "1234567890");
       tft.fillScreen(BG_THEME);
       tft.println("AP On!");
       tft.println("SSID: ESP32 AP");
       tft.println("PWD: 123567890");
     }
-    else if(APOptions[selectedAPOption] == "Dif. SSID AP") {
+    else if(APOptions[selectedAPIndex] == "Dif. SSID AP") {
       WiFi.softAP("Notfreewifi", "dontaskforthepassword");
       tft.fillScreen(BG_THEME);
       tft.println("AP On!");
       tft.println("SSID: Notfreewifi");
       tft.println("PWD: dontaskforthepassword");
     }
-    else if(APOptions[selectedAPOption] == "One use AP") {
+    else if(APOptions[selectedAPIndex] == "One use AP") {
       strcpy(TempSSID, blank);
       strcpy(TempPWD, blank);
       for(int i = 0; i < 9; i++) {
@@ -1054,7 +626,7 @@ void openStartAPApp() {
       tft.print("PWD: ");
       tft.println(TempPWD);
     }
-    else if(APOptions[selectedAPOption] == "Hidden AP") {
+    else if(APOptions[selectedAPIndex] == "Hidden AP") {
       WiFi.softAP("ESP32 AP", "1234567890", 1, 1);
       tft.fillScreen(BG_THEME);
       tft.println("AP On!");
@@ -1064,7 +636,7 @@ void openStartAPApp() {
       tft.println("\nNote: AP not visible on list, Press hidden network and type the details above. ");
       tft.setTextColor(FG_THEME);
     }
-    else if(APOptions[selectedAPOption] == "AP IPv6") {
+    else if(APOptions[selectedAPIndex] == "AP IPv6") {
       WiFi.softAP("ESP32 AP", "1234567890");
       tft.fillScreen(BG_THEME);
       tft.println("AP On!");
@@ -1073,7 +645,7 @@ void openStartAPApp() {
       tft.print("IPv6: ");
       tft.println(WiFi.softAPenableIpV6());
     }
-    else if(APOptions[selectedAPOption] == "STA+AP Mode") {
+    else if(APOptions[selectedAPIndex] == "STA+AP Mode") {
       WiFi.mode(WIFI_MODE_APSTA);
       strcpy(TempPWD, blank);
       for(int i = 0; i < 9; i++) {
@@ -1089,7 +661,10 @@ void openStartAPApp() {
       tft.setCursor(0,0);
       tft.println("Please connect to WiFi...");
     }
-  });
+}
+void openStartAPApp() {
+  isAppOpen = true;
+  createList(APOptions, ArraySize(APOptions), StartAPCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
 }
 
 void openDisconnectAPApp() {
@@ -1119,7 +694,7 @@ void openAPInfoApp() {
   tft.println(WiFi.softAPgetStationNum());
 
   tft.print("\nSSID: ");
-  tft.println(WiFi.softAPSSID());
+  tft.print(WiFi.softAPSSID());
 
   tft.print("\nPSK: \n");
   tft.println(TempPWD);
@@ -1129,64 +704,10 @@ bool serverOn = false;
 bool httpsServerOn = false;
 char* webserverOptions[] = {"HTML Previewer", "Stop HTML Pre.", "HTTPS Server", "Stop HTTPS"};
 int selectedWebserverOption = 0;
-void openWebServerApp() {
-  isAppOpen = true;
-  tft.fillScreen(BG_THEME);
-  tft.setTextSize(TXT_SIZE);
-  for(int i = 0; i < ArraySize(webserverOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedWebserverOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(webserverOptions[i]);
-  }
-  btn1.setClickHandler([](Button2 & b) {
-    if(selectedWebserverOption <= 0) {
 
-    }
-    else {
-      selectedWebserverOption--;
-    }
-    tft.fillScreen(BG_THEME);
-    for(int i = 0; i < ArraySize(webserverOptions); i++) {
-      tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-      if(i == selectedWebserverOption) {
-        tft.setTextColor(BG_THEME, FG_THEME);
-      }
-      else {
-        tft.setTextColor(FG_THEME, BG_THEME);
-      }
-      tft.setCursor(0,(LINE_HEIGHT*i)+1);
-      tft.println(webserverOptions[i]);
-    }
-  });
-  btn2.setClickHandler([](Button2 & b) {
-    if(selectedWebserverOption > ArraySize(webserverOptions)) {
-      selectedWebserverOption = 0;
-    }
-    else {
-      selectedWebserverOption++;
-    }
-    tft.fillScreen(BG_THEME);
-    for(int i = 0; i < ArraySize(webserverOptions); i++) {
-      tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-      if(i == selectedWebserverOption) {
-        tft.setTextColor(BG_THEME, FG_THEME);
-      }
-      else {
-        tft.setTextColor(FG_THEME, BG_THEME);
-      }
-      tft.setCursor(0,(LINE_HEIGHT*i)+1);
-      tft.println(webserverOptions[i]);
-    }
-  });
-  btn2.setLongClickHandler([](Button2 & b) {
-    for(int i = 0; i < ArraySize(webserverOptions); i++) {
-      if(i == selectedWebserverOption) {
+void webserverCallback(char* selectedWebserverOptions, int selectedWebserverIndex) {
+  for(int i = 0; i < ArraySize(webserverOptions); i++) {
+      if(i == selectedWebserverIndex) {
         if(webserverOptions[i] == "HTML Previewer") {
           server.on("/", handleRoot);
           server.on("/view", HTTP_POST, handlePOST);
@@ -1298,7 +819,11 @@ void openWebServerApp() {
         
       }
     }
-  });
+}
+
+void openWebServerApp() {
+  isAppOpen = true;
+  createList(webserverOptions, ArraySize(webserverOptions), webserverCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
 }
 void handlePOST() {
   if (server.hasArg("index") == true) {
@@ -1353,64 +878,9 @@ void openmDNSApp() {
 
 char* displayOptions[] = {"Display Test", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Black", "White"};
 int selectedDisplayOption = 0;
-void openDisplayApp() {
-  isAppOpen = true;
-  tft.fillScreen(BG_THEME);
-  tft.setTextSize(TXT_SIZE);
+void displayCallback(char* selectedDisplayCallback, int selectedDisplayIndex) {
   for(int i = 0; i < ArraySize(displayOptions); i++) {
-    tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-    if(i == selectedDisplayOption) {
-      tft.setTextColor(BG_THEME, FG_THEME);
-    }
-    else {
-      tft.setTextColor(FG_THEME, BG_THEME);
-    }
-    tft.setCursor(0,(LINE_HEIGHT*i)+1);
-    tft.println(displayOptions[i]);
-  }
-  btn1.setClickHandler([](Button2 & b) {
-    if(selectedDisplayOption <= 0) {
-
-    }
-    else {
-      selectedDisplayOption--;
-    }
-    tft.fillScreen(BG_THEME);
-    for(int i = 0; i < ArraySize(displayOptions); i++) {
-      tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-      if(i == selectedDisplayOption) {
-        tft.setTextColor(BG_THEME, FG_THEME);
-      }
-      else {
-        tft.setTextColor(FG_THEME, BG_THEME);
-      }
-      tft.setCursor(0,(LINE_HEIGHT*i)+1);
-      tft.println(displayOptions[i]);
-    }
-  });
-  btn2.setClickHandler([](Button2 & b) {
-    if(selectedDisplayOption > ArraySize(displayOptions)) {
-      selectedDisplayOption = 0;
-    }
-    else {
-      selectedDisplayOption++;
-    }
-    tft.fillScreen(BG_THEME);
-    for(int i = 0; i < ArraySize(displayOptions); i++) {
-      tft.drawRect(0, 0, TFT_WIDTH, LINE_HEIGHT+(LINE_HEIGHT*i), FG_THEME);
-      if(i == selectedDisplayOption) {
-        tft.setTextColor(BG_THEME, FG_THEME);
-      }
-      else {
-        tft.setTextColor(FG_THEME, BG_THEME);
-      }
-      tft.setCursor(0,(LINE_HEIGHT*i)+1);
-      tft.println(displayOptions[i]);
-    }
-  });
-  btn2.setLongClickHandler([](Button2 & b) {
-    for(int i = 0; i < ArraySize(displayOptions); i++) {
-      if(i == selectedDisplayOption) {
+      if(i == selectedDisplayIndex) {
         if(displayOptions[i] == "Display Test") {
           int elapsed = millis();
           for(int j = 0; j <= 10; j++) {
@@ -1462,7 +932,11 @@ void openDisplayApp() {
         
       }
     }
-  });
+}
+
+void openDisplayApp() {
+  isAppOpen = true;
+  createList(displayOptions, ArraySize(displayOptions), webserverCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
 }
 bool KeyboardOn = false;
 void openKeyboardApp() {
@@ -1514,6 +988,56 @@ void openKeyboardApp() {
   });
 }
 
+char* unlockOptions[] = {"Galaxy A30", "Chromebook", "Dell", "THISPC", "Lamar Phone"};
+int selectedUnlockOption = 0;
+void unlockCallback(char* selectedUnlockOption, int selectedUnlockIndex) {
+  for(int i = 0; i < ArraySize(unlockOptions); i++) {
+      if(i == selectedUnlockIndex) {
+        if(unlockOptions[i] == "Galaxy A30") {
+          Keyboard.println("42555299999");
+          tft.setTextColor(TFT_GREEN);
+          tft.println("UNLOCKED");
+          tft.setTextColor(TFT_WHITE);
+        }
+        else if(unlockOptions[i] == "Chromebook") {
+          Keyboard.println("256256");
+          tft.setTextColor(TFT_GREEN);
+          tft.println("UNLOCKED");
+          tft.setTextColor(TFT_WHITE);
+        }
+        else if(unlockOptions[i] == "Dell") {
+          Keyboard.println("GET OUT NOW");
+          tft.setTextColor(TFT_GREEN);
+          tft.println("UNLOCKED");
+          tft.setTextColor(TFT_WHITE);
+        }
+        else if(unlockOptions[i] == "THISPC") {
+          Keyboard.println("12347890");
+          tft.setTextColor(TFT_GREEN);
+          tft.println("UNLOCKED");
+          tft.setTextColor(TFT_WHITE);
+        }
+        else if(unlockOptions[i] == "Lamar Phone") {
+          Keyboard.println("3623");
+          tft.setTextColor(TFT_GREEN);
+          tft.println("UNLOCKED");
+          tft.setTextColor(TFT_WHITE);
+        }
+      }
+    }
+}
+
+void openUnlockApp() {
+  USB.usbClass(0);
+  USB.usbSubClass(0);
+  USB.usbProtocol(0);
+  Keyboard.begin();
+  USB.begin();
+  createList(displayOptions, ArraySize(displayOptions), webserverCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
+  btn2.setLongClickHandler([](Button2 & b) {
+    
+  });
+}
 
 void openSensorApp() {
   isAppOpen = true;
@@ -1780,7 +1304,7 @@ void loop() {
   ArduinoOTA.begin();
   OTASetUP = true;
   }
-  if(selectedOption == "Keyboard" && isAppOpen || KeyboardOn) {
+  if(publicSelectedOption == "Keyboard" && isAppOpen || KeyboardOn) {
     webSocket.loop();
     server.handleClient();
     if(BG_THEME != TFT_GREEN) {
@@ -1790,7 +1314,7 @@ void loop() {
       tft.fillCircle(TFT_WIDTH-35, 5, 5, TFT_RED);
     }
   }
-  if(selectedOption == "Sensors" && isAppOpen) {
+  if(publicSelectedOption == "Sensors" && isAppOpen) {
     // Time Section
 
     // Temp & Humidity Section
