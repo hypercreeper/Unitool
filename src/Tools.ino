@@ -32,9 +32,12 @@
 #include <BLEUtils.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
-#include <BluetoothSerial.h>
+#include <Preferences.h>
+#include <Blynk.h>
+#include <BlynkSimpleEsp32.h>
 // TODO: Make sure to add approximate.h library to calculate distance of devices using wifi
 // TODO: Add Bluetooth
+// WARNING: BluetoothSerial does not work on ESP32S3
 
 #define DEBUG_ON  0
 #if DEBUG_ON
@@ -49,6 +52,9 @@
 #define DBG_printf(...)
 #endif
 
+#define BLYNK_TEMPLATE_ID "TMPLf-rVGNZE"
+#define BLYNK_TEMPLATE_NAME "Quickstart Template"
+#define BLYNK_AUTH_TOKEN "rHmb2QrPJR5m-XiTh0tpa5jT7-_L6332"
 
 BLEScan* blescan;
 int scanTime = 5; //In seconds
@@ -64,11 +70,11 @@ HTTPClient redditClient;
 
 uint32_t BG_THEME = TFT_BLACK;
 uint32_t FG_THEME = TFT_WHITE;
-char* SSIDs[] = {"Moukayed", "Belkin.069", "Mohamad's Room", "AMB-STUDENT", "Diff. Network"};
-char* Passwords[] = {"0566870554", "0566870554", "Mohamad2008!", ""};
-char* WiFiMenuOptions[] = {"Scan WiFi", "Connect", "Disconnect", "STA info", "Erase WiFi", "Start AP", "Stop AP", "AP Info"};
-char* BTMenuOptions[] = {"BLE Scan"};
-char* HomeOptions[] = {"WiFi", "Bluetooth", "ESP32 mDNS", "Webserver","Theme", "Display", "Sensors", "Reddit", "Keyboard", "Unlock"};
+String SSIDs[15];
+String Passwords[15];
+const char* WiFiMenuOptions[] = {"Scan WiFi", "Connect", "Disconnect", "STA info", "Erase WiFi", "Start AP", "Stop AP", "AP Info"};
+const char* BTMenuOptions[] = {"BLE Scan"};
+const char* HomeOptions[] = {"WiFi", "Bluetooth", "ESP32 mDNS", "Webserver","Theme", "Display", "Sensors", "Reddit", "Keyboard", "Unlock", "Factory Reset"};
 String reddit_json = "";
 bool optionsEnabled[] = {true, true, true, true, true, true, true, true};
 char buff[512];
@@ -108,6 +114,11 @@ MDNSResponder mdns;
 
 #include "index_html.h"
 
+Preferences prefs;
+
+
+
+TaskHandle_t BGProcess;
 
 const int MAX_ROWS = 6;
 const int MAX_COLS = 17;
@@ -213,7 +224,158 @@ void handleNotFoundU()
   }
   server.send(404, "text/plain", message);
 }
+bool messageReceived = false;
+String receivedText = "";
+bool capsOn = false;
+void webSocketEventKI(uint8_t num, WStype_t type, uint8_t * payload, size_t length)
+{
+  DBG_printf("webSocketEvent(%d, %d, ...)\r\n", num, type);
+  switch(type) {
+    case WStype_DISCONNECTED:
+      DBG_printf("[%u] Disconnected!\r\n", num);
+      break;
+    case WStype_CONNECTED:
+      {
+        IPAddress ip = webSocket.remoteIP(num);
+        DBG_printf("[%u] Connected from %d.%d.%d.%d url: %s\r\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+      }
+      break;
+    case WStype_TEXT:
+      {
+        DBG_printf("[%u] get Text: [%d] %s \r\n", num, length, payload);
 
+        StaticJsonDocument<96> doc;
+        DeserializationError error = deserializeJson(doc, payload);;
+
+        if (error) {
+          DBG_print(F("deserializeJson() failed: "));
+          DBG_println(error.f_str());
+          return;
+        }
+        const char* event = doc["event"];
+        int row = doc["row"];
+        if (row < 0) {
+          DBG_printf("row negative %d\n", row);
+          row = 0;
+        }
+        if (row >= MAX_ROWS) {
+          DBG_printf("row too high %d\n", row);
+          row = MAX_ROWS - 1;
+        }
+
+        int col = doc["col"];
+        if (col < 0) {
+          DBG_printf("col negative %d\n", col);
+          col = 0;
+        }
+        if (col >= MAX_COLS) {
+          DBG_printf("col too high %d\n", col);
+          col = MAX_COLS - 1;
+        }
+        if (strcmp(event, "touch start") == 0) {
+          if(Keycodes[row][col] != KEY_RETURN) {
+            String tempchar = "";
+            if(String((const char*)doc["name"]).indexOf("<br>") == -1 && String((const char*)doc["name"]) != "Backspace" && String((const char*)doc["name"]) != "Caps<br>Lock" && String((const char*)doc["name"]) != "Space") {
+              if(capsOn) {
+                tempchar = String((const char*)doc["name"]);
+                tempchar.toUpperCase();
+                receivedText += tempchar;
+              }
+              else {
+                tempchar = String((const char*)doc["name"]);
+                tempchar.toLowerCase();
+                receivedText += tempchar;
+              }
+              tft.print(tempchar);
+            }
+            else if(String((const char*)doc["name"]).indexOf("<br>") > -1 && String((const char*)doc["name"]) != "Caps<br>Lock" && String((const char*)doc["name"]) != "Space") {
+              if(capsOn) {
+                tempchar = String((const char*)doc["name"]).substring(String((const char*)doc["name"]).indexOf("<br>")+4);
+                receivedText += tempchar;
+              }
+              else {
+                tempchar = String((const char*)doc["name"]).substring(0, 1);
+                receivedText += tempchar;
+              }
+              tft.print(tempchar);
+            }
+            else if(String((const char*)doc["name"]) == "Caps<br>Lock") {
+              if(capsOn) {
+                capsOn = false;
+                tft.fillCircle(10, TFT_HEIGHT-20, 10, TFT_RED);
+                delay(200);
+              }
+              else {
+                capsOn = true;
+                tft.fillCircle(10, TFT_HEIGHT-20, 10, TFT_GREEN);
+                delay(200);
+              }
+            }
+            else if(String((const char*)doc["name"]) == "Backspace") {
+              receivedText.remove(receivedText.length()-1);
+              tft.print(receivedText);
+              Serial.println(receivedText);
+            }
+            else if(String((const char*)doc["name"]) == "Space") {
+              receivedText += " ";
+              tft.print(" ");
+            }
+            
+          }
+          else if(Keycodes[row][col] == KEY_BACKSPACE) {
+            
+          }
+          else {
+            if(Keycodes[row][col] == KEY_RETURN) {
+              tft.fillScreen(TFT_BLACK);
+              tft.setTextColor(TFT_WHITE);
+              tft.setTextSize(2);
+              tft.setCursor(0,0);
+              tft.println(receivedText);
+              delay(2000);
+              messageReceived = true;
+              Serial.println("Keyboard Input Event Done");
+            }
+          }
+        }
+        else if (strcmp(event, "touch end") == 0) {
+          
+        }
+      }
+      break;
+    case WStype_BIN:
+      DBG_printf("[%u] get binary length: %u\r\n", num, length);
+      //      hexdump(payload, length);
+
+      // echo data back to browser
+      webSocket.sendBIN(num, payload, length);
+      break;
+    default:
+      DBG_printf("Invalid WStype [%d]\r\n", type);
+      break;
+  }
+}
+
+void handleRootKI()
+{
+  server.send(200, "text/html", INDEX_HTML);
+}
+
+void handleNotFoundKI()
+{
+  String message = "File Not Found\n\n";
+  message += "URI: ";
+  message += server.uri();
+  message += "\nMethod: ";
+  message += (server.method() == HTTP_GET)?"GET":"POST";
+  message += "\nArguments: ";
+  message += server.args();
+  message += "\n";
+  for (uint8_t i=0; i<server.args(); i++){
+    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+  }
+  server.send(404, "text/plain", message);
+}
 
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
@@ -232,7 +394,8 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
 };
 
 int selectedIndexPrivate = 0;
-void createList(char* options[], int length, void (*callback)(char* selectedOption, int selectedIndex), uint32_t BG, uint32_t FG, int txtSize, int lineHeight) {
+void createList(const char* options[], int length, void (*callback)(char* selectedOption, int selectedIndex), uint32_t BG, uint32_t FG, int txtSize, int lineHeight) {
+    selectedIndexPrivate = 0;
     drawList(options, length, BG, FG, txtSize, lineHeight);
     btn2.setClickHandler([options, BG, FG, txtSize, lineHeight, length](Button2 & b) {
         if(selectedIndexPrivate >= length-1) {
@@ -253,12 +416,55 @@ void createList(char* options[], int length, void (*callback)(char* selectedOpti
             drawList(options, length, BG, FG, txtSize, lineHeight);
     });
     btn2.setLongClickHandler([callback, options](Button2 & b) {
-      char* selectedOption = options[selectedIndexPrivate];
+      char* selectedOption = (char*)options[selectedIndexPrivate];
       callback(selectedOption, selectedIndexPrivate);
       selectedIndexPrivate = 0;
     });
 }
-void drawList(char* options[], int length, uint32_t BG, uint32_t FG, int txtSize, int lineHeight){
+void createList(String options[], int length, void (*callback)(String selectedOption, int selectedIndex), uint32_t BG, uint32_t FG, int txtSize, int lineHeight) {
+    selectedIndexPrivate = 0;
+    drawList(options, length, BG, FG, txtSize, lineHeight);
+    btn2.setClickHandler([options, BG, FG, txtSize, lineHeight, length](Button2 & b) {
+        if(selectedIndexPrivate >= length-1) {
+            selectedIndexPrivate = 0;
+        }
+        else {
+            selectedIndexPrivate++;
+        }
+        drawList(options, length, BG, FG, txtSize, lineHeight);
+    });
+    btn1.setClickHandler([options, BG, FG, txtSize, lineHeight, length](Button2 & b) {
+            if(selectedIndexPrivate <= 0) {
+                selectedIndexPrivate = length-1;
+            }
+            else {
+                selectedIndexPrivate--;
+            }
+            drawList(options, length, BG, FG, txtSize, lineHeight);
+    });
+    btn2.setLongClickHandler([callback, options](Button2 & b) {
+      String selectedOption = (String)options[selectedIndexPrivate];
+      callback(selectedOption, selectedIndexPrivate);
+      selectedIndexPrivate = 0;
+    });
+}
+void drawList(String options[], int length, uint32_t BG, uint32_t FG, int txtSize, int lineHeight){
+    tft.setRotation(0);
+    tft.fillScreen(BG);
+    tft.setTextSize(txtSize);
+    for(int i = 0; i < length; i++) {
+        tft.drawRect(0, 0, TFT_WIDTH, lineHeight+(lineHeight*i), FG);
+        if(i == selectedIndexPrivate) {
+            tft.setTextColor(BG, FG);
+        }
+        else {
+            tft.setTextColor(FG, BG);
+        }
+        tft.setCursor(0,(lineHeight*i)+1);
+        tft.println(options[i]);
+    }
+}
+void drawList(const char* options[], int length, uint32_t BG, uint32_t FG, int txtSize, int lineHeight){
     tft.setRotation(0);
     tft.fillScreen(BG);
     tft.setTextSize(txtSize);
@@ -280,6 +486,7 @@ void drawList(char* options[], int length, uint32_t BG, uint32_t FG, int txtSize
 
 
 void homeMenuCallback(char* selectedOption, int selectedIndex) {
+  publicSelectedOption = selectedOption;
   if(isAppOpen == false) {
       if(selectedOption == "Theme") {
         openThemeApp();
@@ -311,6 +518,9 @@ void homeMenuCallback(char* selectedOption, int selectedIndex) {
       else if(selectedOption == "Unlock") {
         openUnlockApp();
       }
+      else if(selectedOption == "Factory Reset") {
+        openFactoryResetApp();
+      }
     }
 }
 
@@ -318,19 +528,75 @@ void setup() {
   // put your setup code here, to run once:
   pinMode(15, OUTPUT);
   digitalWrite(15, HIGH);
-  Serial.begin(115200);
   tft.init();
   tft.setRotation(0);
-  tft.setTextColor(TFT_BLACK);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(1);
+  tft.setCursor(0,0);
+  tft.print("Starting prefs...");
+  prefs.begin("unitool", false);
+  tft.println("done");
+  tft.print("Starting Serial...");
+  Serial.begin(115200);
+  tft.println("done");
+  tft.print("Setting Theme...");
   setTheme(false);
+  tft.println("done");
   WiFi.setAutoReconnect(true);
+  tft.print("Starting DHT...");
+  tft.println("done");
   dht.begin();
+  tft.print("Starting BT...");
   BLEDevice::init("ESP32");
+  tft.println("done");
+  tft.println("Starting WiFi & Blynk...");
+  WiFi.mode(WIFI_STA);
+  tft.println("Mode Set");
+  int16_t n = WiFi.scanNetworks();
+  if (n == 0) {
+      tft.setTextColor(TFT_RED);
+      tft.println("no networks found [FATAL]");
+      tft.setTextColor(TFT_WHITE);
+      return;
+  } else {
+      for (int i = 0; i < n; i++) {
+        tft.print("Attempting ");
+        tft.println(WiFi.SSID(i).c_str());
+        tft.println(" With pwd: ");
+        tft.println(prefs.getString(WiFi.SSID(i).c_str()).c_str()); 
+        Blynk.begin(BLYNK_AUTH_TOKEN, WiFi.SSID(i).c_str(), prefs.getString(WiFi.SSID(i).c_str()).c_str());
+        delay(2000);
+        if(Blynk.CONNECTED) {
+          tft.println("CONNECTED");
+          break;
+        }
+      }
+      if(!WiFi.isConnected()) {
+        tft.setTextColor(TFT_RED);
+        tft.println("failed [FATAL]");
+        tft.setTextColor(TFT_WHITE);
+        return;
+      }
+      else {
+        tft.println("done");
+      }
+  }
+  tft.println("Launching...");
+  delay(500);
   DisplayHomeScreen();
   btn1.setDoubleClickHandler([](Button2 & b) {
     isAppOpen = false;
     DisplayHomeScreen();
   });
+  xTaskCreatePinnedToCore(
+      BackgroundProcesses, /* Function to implement the task */
+      "Background Processes", /* Name of the task */
+      10000,  /* Stack size in words */
+      NULL,  /* Task input parameter */
+      0,  /* Priority of the task */
+      &BGProcess,  /* Task handle. */
+      0); /* Core where the task should run */
 }
 
 void setTheme(bool Light) {
@@ -371,7 +637,7 @@ void DisplayHomeScreen() {
 // }
 
 
-char* themeOptions[] = {"Dark", "Light", "Red", "Orange", "Yellow", "Green", "Blue", "Purple"};
+const char* themeOptions[] = {"Dark", "Light", "Red", "Orange", "Yellow", "Green", "Blue", "Purple"};
 
 void themeCallback(char* selectedThemeOption, int selectedThemeIndex) {
   if(selectedThemeOption == "Red") {
@@ -437,10 +703,15 @@ void WiFiSubmenuCallback(char* SelectedWiFiSubmenuOption, int SelectedWiFiSubmen
     else if(WiFiMenuOptions[SelectedWiFiSubmenuIndex] == "AP Info") {
       openAPInfoApp();
     }
+    else {
+      tft.setCursor(0,0);
+      tft.setTextColor(TFT_RED, TFT_BLACK);
+      tft.println("An Error Occurred");
+    }
 }
 void openWiFiSubmenu() {
   isAppOpen = true;
-  createList(WiFiMenuOptions, ArraySize(WiFiMenuOptions), themeCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
+  createList(WiFiMenuOptions, ArraySize(WiFiMenuOptions), WiFiSubmenuCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
 }
 
 void BTMenuCallback(char* BTMenuSelectedOption, int BTMenuSelectedIndex) {
@@ -497,13 +768,75 @@ void openBLEScanApp() {
   tft.println("Scan done!");
 }
 
-void connectCallback(char* ConnectSelectedOption, int ConnectSelectedIndex) {
+String getKeyboardInput(String prompt, bool shutDownAPAfterUse) {
+  messageReceived = false;
+  bool keyboardRunning = true;
+  receivedText = "";
+  tft.fillScreen(BG_THEME);
+  tft.setCursor(0,0);
+  tft.setTextColor(FG_THEME);
+  // if(WiFi.softAPIP() == IPAddress(0,0,0,0)) {
+    if(!WiFi.isConnected()) {
+      // WiFi.mode(WIFI_STA);
+      // WiFi.begin("Moukayed", "0566870554");
+      WiFi.mode(WIFI_AP); // explicitly set mode, esp defaults to STA+AP
+      WiFi.softAP("ESP32Input");
+    }
+  // }
+  delay(3000);
+  if (mdns.begin("esp32keyboardinput")) {
+    // tft.println("MDNS responder started");
+    mdns.addService("http", "tcp", 80);
+    mdns.addService("ws", "tcp", 81);
+  }
+  else {
+    tft.println("MDNS.begin failed");
+  }
+  DBG_print(F("Connect to http://esp32keyboardinput.local or http://"));
+  DBG_println(WiFi.localIP());
+  tft.setTextColor(FG_THEME);
+  tft.setTextSize(TXT_SIZE);
+  // tft.println("http://esp32keyboardinput.local/");
+  if(WiFi.getMode() == WIFI_STA) {
+    // tft.println(WiFi.localIP());
+  }
+  else {
+    // tft.println(WiFi.softAPIP());
+  }
+  server.on("/", handleRootKI);
+  server.onNotFound(handleNotFoundKI);
+
+  server.begin();
+
+  webSocket.begin();
+  webSocket.onEvent(webSocketEventKI);
+  tft.println(prompt);
+  tft.print("> ");
+  while(keyboardRunning) {
+        if(messageReceived) {
+          keyboardRunning = false;
+          server.close();
+          webSocket.close();
+          if(shutDownAPAfterUse) {
+            WiFi.softAPdisconnect();
+          }
+          return receivedText;
+        }
+        else {
+          server.handleClient();
+          webSocket.loop();
+        }
+    }
+}
+
+void connectCallback(String ConnectSelectedOption, int ConnectSelectedIndex) {
   if(!staapmodepublic) {
       WiFi.mode(WIFI_STA);
       WiFi.disconnect();
     }
-    if(SSIDs[ConnectSelectedIndex] != "Diff. Network") {
-      WiFi.begin(SSIDs[ConnectSelectedIndex], Passwords[ConnectSelectedIndex]);
+    if(SSIDs[ConnectSelectedIndex] != "Other...") {
+      String pwd = prefs.getString(SSIDs[ConnectSelectedIndex].c_str(), "");
+      WiFi.begin(SSIDs[ConnectSelectedIndex].c_str(), pwd.c_str());
       tft.setTextColor(FG_THEME);
       tft.setCursor(0,0);
       int retrycon = 25;
@@ -526,15 +859,41 @@ void connectCallback(char* ConnectSelectedOption, int ConnectSelectedIndex) {
       }
     }
     else {
-      WiFi.beginSmartConfig();
       tft.fillScreen(BG_THEME);
       tft.setTextColor(FG_THEME);
       tft.setCursor(0,0);
       tft.setTextSize(TXT_SIZE);
-      tft.println("Use ESPTOUCH to connect ESP32 to a new network");
-      tft.print("Waiting...");
-      while(!WiFi.smartConfigDone()) {
-        
+      Serial.println("Loading SSID Keyboard");
+      getKeyboardInput("Enter SSID", false);
+      String ssid = receivedText;
+      tft.fillScreen(TFT_BLACK);
+      getKeyboardInput("Enter Password", true);
+      String pswd = receivedText;
+      prefs.putString(ssid.c_str(), pswd.c_str());
+      WiFi.disconnect();
+      WiFi.mode(WIFI_STA);
+      WiFi.begin(ssid.c_str(), pswd.c_str());
+      ssid = "";
+      pswd = "";
+      tft.setTextColor(FG_THEME);
+      tft.setCursor(0,0);
+      int retrycon = 25;
+      tft.fillScreen(BG_THEME);
+      tft.print("Connecting to ");
+      tft.print(ssid);
+      tft.println("...");
+      while (WiFi.status() != WL_CONNECTED)
+      {
+        delay(500);
+        if (--retrycon == 0)
+        {
+          tft.setTextColor(TFT_RED);
+          tft.println("ERROR: CONNECTION FAILED\n\nPlease reconnect. ");
+          // delay(1500);
+          // ESP.restart();
+          break;
+        }
+        tft.print(".");
       }
     }
 
@@ -547,7 +906,24 @@ void connectCallback(char* ConnectSelectedOption, int ConnectSelectedIndex) {
 }
 void openConnectApp() {
   isAppOpen = true;
-  createList(SSIDs, ArraySize(SSIDs), connectCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
+  char bufff[512];
+  tft.fillScreen(BG_THEME);
+  tft.setTextColor(FG_THEME);
+  tft.setTextSize(TXT_SIZE);
+  tft.setCursor(0,0);
+  tft.println("Loading...");
+  WiFi.mode(WIFI_STA);
+  int16_t n = WiFi.scanNetworks();
+  if (n == 0) {
+      
+  } else {
+      for (int i = 0; i < n; i++) {
+        SSIDs[i] = WiFi.SSID(i).c_str();
+      }
+      SSIDs[n] = "Other...";
+  }
+  createList(SSIDs, 15, connectCallback, BG_THEME, FG_THEME, TXT_SIZE, LINE_HEIGHT);
+  //                ^SSIDs can only hold 15 items
   
 }
 void openDisconnectApp(bool eraseCred) {
@@ -587,7 +963,7 @@ void openSTAInfoApp() {
 
 }
 int selectedAPOption = 0;
-char* APOptions[] = {"Basic AP", "Dif. SSID AP", "Hidden AP", "One use AP", "AP IPv6", "STA+AP Mode"};
+const char* APOptions[] = {"Basic AP", "Dif. SSID AP", "Hidden AP", "One use AP", "AP IPv6", "STA+AP Mode"};
 char* RandString[] = {"a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","1","2","3","4","5","6","7","8","9","0"};
 char TempSSID[12];
 char TempPWD[12];
@@ -702,7 +1078,7 @@ void openAPInfoApp() {
 }
 bool serverOn = false;
 bool httpsServerOn = false;
-char* webserverOptions[] = {"HTML Previewer", "Stop HTML Pre.", "HTTPS Server", "Stop HTTPS"};
+const char* webserverOptions[] = {"HTML Previewer", "Stop HTML Pre.", "HTTPS Server", "Stop HTTPS"};
 int selectedWebserverOption = 0;
 
 void webserverCallback(char* selectedWebserverOptions, int selectedWebserverIndex) {
@@ -876,7 +1252,7 @@ void openmDNSApp() {
   }
 }
 
-char* displayOptions[] = {"Display Test", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Black", "White"};
+const char* displayOptions[] = {"Display Test", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Black", "White"};
 int selectedDisplayOption = 0;
 void displayCallback(char* selectedDisplayCallback, int selectedDisplayIndex) {
   for(int i = 0; i < ArraySize(displayOptions); i++) {
@@ -950,7 +1326,7 @@ void openKeyboardApp() {
   USB.usbProtocol(0);
   Keyboard.begin();
   USB.begin();
-  if(!WiFi.isConnected()) {
+  if(!WiFi.isConnected() || WiFi.softAPIP() == IPAddress(0,0,0,0)) {
       tft.setTextColor(TFT_RED, TFT_BLACK);
       tft.println("Please connect to the internet");
       return;
@@ -1233,6 +1609,31 @@ void openRedditApp(bool redirect) {
     }
   });
 }
+void openFactoryResetApp() {
+  isAppOpen = true;
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_RED);
+  tft.drawCentreString("THIS ACTION CANNOT BE UNDONE. \nARE YOU SURE?", TFT_WIDTH/2, 30, 1);
+  tft.setCursor(0, TFT_HEIGHT-20);
+  tft.print("NO");
+  tft.setCursor(TFT_WIDTH-60,TFT_HEIGHT-20);
+  tft.print("YES");
+  btn1.setClickHandler([](Button2 & b) {
+    isAppOpen = false;
+    DisplayHomeScreen();
+  });
+  btn2.setClickHandler([](Button2 & b) {
+    tft.fillScreen(TFT_BLACK);
+    tft.setCursor(0,0);
+    tft.println("Resetting...");
+    delay(500);
+    prefs.clear();
+    tft.println("Rebooting...");
+    delay(500);
+    ESP.restart();
+  });
+}
+
 // Apps cannot be past this point
 bool OTASetUP = false;
 void loop() {
@@ -1339,6 +1740,8 @@ void loop() {
       tft.print("Humi: ");
       tft.print(h);
       tft.println("%");
+      Blynk.virtualWrite(V5, t);
+      Blynk.virtualWrite(V4, h);
       delay(2000);
     }
 
@@ -1355,4 +1758,32 @@ void loop() {
     secureServer->loop();
   }
   ArduinoOTA.handle();
+}
+
+void BackgroundProcesses(void * parameter) {
+  for(;;) {
+    if(Blynk.CONNECTED) {
+      if(WiFi.isConnected()) {
+        Blynk.virtualWrite(V0, "Online [STA]");
+        Blynk.virtualWrite(V7, WiFi.SSID());
+        Blynk.virtualWrite(V6, WiFi.localIP().toString());
+      }
+      else {
+        if(WiFi.getMode() == WIFI_AP) {
+          Blynk.virtualWrite(V0, "Online [AP]");
+          Blynk.virtualWrite(V7, WiFi.softAPSSID());
+          Blynk.virtualWrite(V6, WiFi.softAPIP().toString());
+        }
+        else if(WiFi.getMode() == WIFI_AP_STA) {
+          Blynk.virtualWrite(V0, "Online [STA+AP]");
+          Blynk.virtualWrite(V7, WiFi.softAPSSID() + " | " + WiFi.SSID());
+          Blynk.virtualWrite(V7, WiFi.localIP().toString() + " | " + WiFi.softAPIP().toString());
+        }
+        else {
+          Blynk.virtualWrite(V0, "Offline");
+        }
+      }
+      Blynk.run();
+    }
+  }
 }

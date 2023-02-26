@@ -156,9 +156,13 @@ function touch_end(event) {
     e.style.backgroundColor = "white";
     websock.send(JSON.stringify({event:'touch end', name:this.innerHTML, id:this.id, row:this.row, col:this.col}));
 }
+var totalString = "";
 function touch_move(event) {
     event.preventDefault();
-    var json = JSON.stringify({event:'touch move', name:this.innerHTML, row:this.row, col:this.col});
+    if(this.innerHTML != "Enter" && this.innerHTML != "Backspace") {
+        totalString += this.innerHTML;
+    }
+    var json = JSON.stringify({event:'touch move', name:this.innerHTML, row:this.row, col:this.col, full:totalString});
     if (!connected) {
         setTimeout(function(json) {
             websock.send(json);
@@ -167,6 +171,9 @@ function touch_move(event) {
     }
     else {
         websock.send(json);
+    }
+    if(this.innerHTML == "Enter") {
+        totalString = "";
     }
 }
 function touch_cancel(event) {
