@@ -778,7 +778,7 @@ String getKeyboardInput(String prompt, bool shutDownAPAfterUse) {
   // if(WiFi.softAPIP() == IPAddress(0,0,0,0)) {
     if(!WiFi.isConnected()) {
       // WiFi.mode(WIFI_STA);
-      // WiFi.begin("Moukayed", "0566870554");
+      // WiFi.begin("SSID", "PASSWORD");
       WiFi.mode(WIFI_AP); // explicitly set mode, esp defaults to STA+AP
       WiFi.softAP("ESP32Input");
     }
@@ -1364,37 +1364,25 @@ void openKeyboardApp() {
   });
 }
 
-char* unlockOptions[] = {"Galaxy A30", "Chromebook", "Dell", "THISPC", "Lamar Phone"};
+char* unlockOptions[] = {"Devices", "Go", "Here"};
 int selectedUnlockOption = 0;
 void unlockCallback(char* selectedUnlockOption, int selectedUnlockIndex) {
   for(int i = 0; i < ArraySize(unlockOptions); i++) {
       if(i == selectedUnlockIndex) {
-        if(unlockOptions[i] == "Galaxy A30") {
-          Keyboard.println("42555299999");
+        if(unlockOptions[i] == "Devices") {
+          Keyboard.println("Password");
           tft.setTextColor(TFT_GREEN);
           tft.println("UNLOCKED");
           tft.setTextColor(TFT_WHITE);
         }
-        else if(unlockOptions[i] == "Chromebook") {
-          Keyboard.println("256256");
+        else if(unlockOptions[i] == "Go") {
+          Keyboard.println("password");
           tft.setTextColor(TFT_GREEN);
           tft.println("UNLOCKED");
           tft.setTextColor(TFT_WHITE);
         }
-        else if(unlockOptions[i] == "Dell") {
-          Keyboard.println("GET OUT NOW");
-          tft.setTextColor(TFT_GREEN);
-          tft.println("UNLOCKED");
-          tft.setTextColor(TFT_WHITE);
-        }
-        else if(unlockOptions[i] == "THISPC") {
-          Keyboard.println("12347890");
-          tft.setTextColor(TFT_GREEN);
-          tft.println("UNLOCKED");
-          tft.setTextColor(TFT_WHITE);
-        }
-        else if(unlockOptions[i] == "Lamar Phone") {
-          Keyboard.println("3623");
+        else if(unlockOptions[i] == "Here") {
+          Keyboard.println("no password");
           tft.setTextColor(TFT_GREEN);
           tft.println("UNLOCKED");
           tft.setTextColor(TFT_WHITE);
